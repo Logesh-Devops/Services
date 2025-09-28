@@ -43,6 +43,7 @@ class ServiceRead(ServiceBase):
     id: uuid.UUID
     created_by: str
     created_at: datetime
+    checklists: List["ChecklistItem"] = []
 
     class Config:
         from_attributes = True
@@ -63,6 +64,12 @@ class ChecklistItem(ChecklistItemCreate):
         from_attributes = True
 
 
+class ChecklistItemUpdate(BaseModel):
+    item_text: Optional[str] = None
+    is_required: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
 # --- Subtask Schemas ---
 class SubtaskCreate(BaseModel):
     title: str
@@ -80,6 +87,16 @@ class Subtask(SubtaskCreate):
 
     class Config:
         from_attributes = True
+
+
+class SubtaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    due_date: Optional[int] = None
+    target_date: Optional[int] = None
+    users: Optional[List[uuid.UUID]] = None
+    enable_workflow: Optional[bool] = None
+    sort_order: Optional[int] = None
 
 
 

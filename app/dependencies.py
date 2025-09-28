@@ -31,7 +31,8 @@ def get_current_user(token: str = Depends(http_bearer)):
 
 def require_role(allowed_roles: List[str]):
     def role_checker(current_user: dict = Depends(get_current_user)):
-        if current_user["role"] not in allowed_roles:
+        user_role = current_user.get("role", "").upper()
+        if user_role not in [role.upper() for role in allowed_roles]:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
     return role_checker
 

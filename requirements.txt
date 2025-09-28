@@ -1,11 +1,10 @@
 fastapi
 uvicorn
-python-multipart
 sqlalchemy
 psycopg2-binary
-alembic
-python-jose[cryptography]
+python-multipart
 passlib[bcrypt]
-pydantic[email]
-requests
+python-jose[cryptography]
+boto3
 python-dotenv
+requests

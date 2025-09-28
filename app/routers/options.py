@@ -2,12 +2,12 @@ from typing import List
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
-import shutil
-from pathlib import Path
+import boto3
 
 from .. import models, schemas
 from ..database import SessionLocal
 from ..dependencies import get_current_user, get_current_agency, require_role
+from .. import config
 
 router = APIRouter()
 
@@ -116,6 +116,25 @@ def delete_checklist_item(
     db.delete(db_checklist_item)
     db.commit()
 
+
+@router.patch("/checklists/{checklist_item_id}", response_model=schemas.ChecklistItem, dependencies=[Depends(require_role(["SUPER_ADMIN", "AGENCY_ADMIN", "CA_ACCOUNTANT"]))])
+def update_checklist_item(
+    checklist_item_id: uuid.UUID,
+    checklist_item_in: schemas.ChecklistItemUpdate,
+    db: Session = Depends(get_db),
+):
+    db_checklist_item = db.query(models.ServiceChecklist).filter(models.ServiceChecklist.id == checklist_item_id).first()
+    if db_checklist_item is None:
+        raise HTTPException(status_code=404, detail="Checklist item not found")
+
+    update_data = checklist_item_in.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_checklist_item, key, value)
+
+    db.commit()
+    db.refresh(db_checklist_item)
+    return db_checklist_item
+
 @router.post("/subtasks/{service_id}", response_model=schemas.Subtask, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role(["SUPER_ADMIN", "AGENCY_ADMIN", "CA_ACCOUNTANT"]))])
 def create_subtask(
     service_id: uuid.UUID,
@@ -170,6 +189,25 @@ def delete_subtask(
     db.delete(db_subtask)
     db.commit()
 
+
+@router.patch("/subtasks/{subtask_id}", response_model=schemas.Subtask, dependencies=[Depends(require_role(["SUPER_ADMIN", "AGENCY_ADMIN", "CA_ACCOUNTANT"]))])
+def update_subtask(
+    subtask_id: uuid.UUID,
+    subtask_in: schemas.SubtaskUpdate,
+    db: Session = Depends(get_db),
+):
+    db_subtask = db.query(models.ServiceSubtask).filter(models.ServiceSubtask.id == subtask_id).first()
+    if db_subtask is None:
+        raise HTTPException(status_code=404, detail="Subtask not found")
+
+    update_data = subtask_in.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_subtask, key, value)
+
+    db.commit()
+    db.refresh(db_subtask)
+    return db_subtask
+
 @router.post("/supporting-files/{service_id}", response_model=schemas.FileRead, dependencies=[Depends(require_role(["SUPER_ADMIN", "AGENCY_ADMIN", "CA_ACCOUNTANT", "CA_TEAM"]))])
 def upload_file(
     service_id: uuid.UUID,
@@ -189,17 +227,20 @@ def upload_file(
     if db_service is None:
         raise HTTPException(status_code=404, detail="Service not found")
 
-    upload_dir = Path("uploads") / str(service_id)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    file_path = upload_dir / f"{uuid.uuid4()}_{file.filename}"
+    s3 = boto3.client(
+        "s3",
+        aws_access_key_id=config.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=config.AWS_SECRET_ACCESS_KEY,
+    )
+    bucket_name = config.S3_BUCKET_NAME
+    file_key = f"{service_id}/{uuid.uuid4()}_{file.filename}"
 
-    with file_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    s3.upload_fileobj(file.file, bucket_name, file_key)
 
     db_file = models.ServiceSupportingFile(
         service_id=service_id,
         file_name=file.filename,
-        file_path=str(file_path),
+        file_path=f"s3://{bucket_name}/{file_key}",
         mime_type=file.content_type,
         uploaded_by=user_id,
     )
@@ -225,9 +266,15 @@ def delete_supporting_file(
     if db_file is None:
         raise HTTPException(status_code=404, detail="File not found")
     
-    file_path = Path(db_file.file_path)
-    if file_path.exists():
-        file_path.unlink()
+    s3 = boto3.client(
+        "s3",
+        aws_access_key_id=config.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=config.AWS_SECRET_ACCESS_KEY,
+    )
+    bucket_name = config.S3_BUCKET_NAME
+    file_key = "/".join(db_file.file_path.split("/")[3:])
+
+    s3.delete_object(Bucket=bucket_name, Key=file_key)
 
     db.delete(db_file)
     db.commit()

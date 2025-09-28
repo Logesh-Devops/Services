@@ -1,23 +1,18 @@
 from typing import List
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
+from sqlalchemy.orm import Session, joinedload
 import shutil
 from pathlib import Path
 
 from .. import models, schemas
-from ..database import SessionLocal
 from ..dependencies import get_current_user, get_current_agency, require_role
 
 router = APIRouter()
 
 # Dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+def get_db(request: Request):
+    return request.state.db
 
 @router.post("/", response_model=schemas.ServiceRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role(["SUPER_ADMIN", "AGENCY_ADMIN", "CA_ACCOUNTANT"]))])
 def create_service(
@@ -58,7 +53,8 @@ def list_services(
     current_agency: dict = Depends(get_current_agency),
 ):
     agency_id = current_agency["id"]
-    return db.query(models.Service).filter(models.Service.agency_id == agency_id).all()
+    services = db.query(models.Service).options(joinedload(models.Service.checklists)).filter(models.Service.agency_id == agency_id).all()
+    return services
 
 
 @router.get("/{service_id}", response_model=schemas.ServiceRead, dependencies=[Depends(require_role(["SUPER_ADMIN", "AGENCY_ADMIN", "CA_ACCOUNTANT", "CLIENT_ADMIN", "CLIENT_USER"]))])
@@ -70,6 +66,7 @@ def get_service(
     agency_id = current_agency["id"]
     db_service = (
         db.query(models.Service)
+        .options(joinedload(models.Service.checklists))
         .filter(models.Service.id == service_id, models.Service.agency_id == agency_id)
         .first()
     )
